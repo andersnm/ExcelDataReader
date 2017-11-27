@@ -258,6 +258,8 @@ namespace ExcelDataReader.Core.BinaryFormat
                 case BIFFRECORDTYPE.MERGECELLS:
                     return new XlsBiffMergeCells(bytes, offset);
 
+                case BIFFRECORDTYPE.HYPERLINK:
+                    return new XlsBiffHyperlink(bytes, offset);
                 default:
                     return new XlsBiffRecord(bytes, offset);
             }

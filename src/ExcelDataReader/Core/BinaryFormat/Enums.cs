@@ -156,7 +156,7 @@ namespace ExcelDataReader.Core.BinaryFormat
         DCONBIN = 0x01B5,
         DV = 0x01BE,
         DVAL = 0x01B2,
-        HLINK = 0x01B8,
+        HYPERLINK = 0x01B8,
         MSODRAWINGGROUP = 0x00EB,
         MSODRAWING = 0x00EC,
         MSODRAWINGSELECTION = 0x00ED,

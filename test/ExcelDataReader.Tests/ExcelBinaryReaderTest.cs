@@ -1703,5 +1703,14 @@ namespace ExcelDataReader.Netstandard20.Tests
                 );
             }
         }
+
+        [TestMethod]
+        public void GitIssue_Hyperlink()
+        {
+            using (var excelReader = ExcelReaderFactory.CreateBinaryReader(Configuration.GetTestWorkbook("Git_issue_hyperlink")))
+            {
+                var ds = excelReader.AsDataSet();
+            }
+        }
     }
 }

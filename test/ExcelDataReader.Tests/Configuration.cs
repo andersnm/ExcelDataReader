@@ -160,6 +160,8 @@ namespace ExcelDataReader.Tests
             { "Test_MergedCell_Binary", "Test_MergedCell.xls" },
             { "Test_MergedCell_OpenXml", "Test_MergedCell.xlsx" },
             { "Test_git_issue_301_IgnoreCase", "Test_git_issue_301_IgnoreCase.xlsx" },
+            { "Git_issue_hyperlink", "Git_issue_hyperlink.xls" },
+            { "xGit_issue_hyperlink", "Git_issue_hyperlink.xlsx" },
         };
 
         public static Stream GetTestWorkbook(string key)
