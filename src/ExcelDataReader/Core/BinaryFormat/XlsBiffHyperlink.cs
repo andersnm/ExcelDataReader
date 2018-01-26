@@ -7,8 +7,6 @@ namespace ExcelDataReader.Core.BinaryFormat
     internal class XlsBiffHyperlink : XlsBiffRecord
     {
         private static readonly Guid StdLink = new Guid("79EAC9D0-BAF9-11CE-8C82-00AA004BA90B");
-        private static readonly Guid UrlMoniker = new Guid(0x79EAC9E0, 0xBAF9, 0x11CE, 0x8C, 0x82, 0x00, 0xAA, 0x00, 0x4B, 0xA9, 0x0B);
-        private static readonly Guid FileMoniker = new Guid(0x00000303, 0x0000, 0x0000, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
         private static readonly Guid CompositeMoniker = new Guid(0x00000309, 0x0000, 0x0000, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
         private static readonly Guid AntiMoniker = new Guid(0x00000305, 0x0000, 0x0000, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
         private static readonly Guid ItemMoniker = new Guid(0x00000304, 0x0000, 0x0000, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
@@ -46,44 +44,51 @@ namespace ExcelDataReader.Core.BinaryFormat
             if ((optionFlags & OptionFlags.HasFrameName) != 0)
             {
                 // Variable length target frame name
-                var targetFrameName = ReadHyperlinkString(hyperlinkOffset, out var bytesRead);
+                TargetFrameName = ReadHyperlinkString(hyperlinkOffset, out var bytesRead);
                 hyperlinkOffset += bytesRead;
             }
 
-            if ((optionFlags & OptionFlags.HasMoniker) != 0)
+            try
             {
-                if ((optionFlags & OptionFlags.MonikerSavedAsStr) != 0)
+                if ((optionFlags & OptionFlags.HasMoniker) != 0)
                 {
-                    // Variable length moniker string
-                    Moniker = ReadHyperlinkString(hyperlinkOffset, out var bytesRead);
+                    if ((optionFlags & OptionFlags.MonikerSavedAsStr) != 0)
+                    {
+                        // Variable length moniker string
+                        MonikerString = ReadHyperlinkString(hyperlinkOffset, out var bytesRead);
+                        hyperlinkOffset += bytesRead;
+                    }
+                    else
+                    {
+                        // Variable length olemoniker
+                        Moniker = ReadHyperLinkMoniker(hyperlinkOffset, out var bytesRead);
+                        hyperlinkOffset += bytesRead;
+                    }
+                }
+
+                if ((optionFlags & OptionFlags.HasLocationStr) != 0)
+                {
+                    // variable length location
+                    Location = ReadHyperlinkString(hyperlinkOffset, out var bytesRead);
                     hyperlinkOffset += bytesRead;
                 }
-                else
+
+                if ((optionFlags & OptionFlags.HasGUID) != 0)
                 {
-                    // Variable length olemoniker
-                    Moniker = ReadHyperLinkMoniker(hyperlinkOffset, out var bytesRead);
-                    hyperlinkOffset += bytesRead;
+                    // fixed length GUID
+                }
+
+                if ((optionFlags & OptionFlags.HasCreationTime) != 0)
+                {
+                    // fixed length creation time
                 }
             }
-
-            if ((optionFlags & OptionFlags.HasLocationStr) != 0)
+            catch (MonikerException)
             {
-                // variable length location
-                Location = ReadHyperlinkString(hyperlinkOffset, out var bytesRead);
-                hyperlinkOffset += bytesRead;
+                // Encountered an unknown OLE moniker in ReadHyperLinkMoniker(). 
+                // The remainder of the BIFF record cannot be parsed because
+                // the moniker's variable data size is unknown.
             }
-
-            if ((optionFlags & OptionFlags.HasGUID) != 0)
-            {
-                // fixed length GUID
-            }
-
-            if ((optionFlags & OptionFlags.HasCreationTime) != 0)
-            {
-                // fixed length creation time
-            }
-
-            // throw new Exception("us");
         }
 
         internal enum OptionFlags : uint
@@ -110,7 +115,11 @@ namespace ExcelDataReader.Core.BinaryFormat
 
         public string DisplayName { get; }
 
-        public string Moniker { get; }
+        public string TargetFrameName { get; }
+
+        public string MonikerString { get; }
+
+        public OleMoniker Moniker { get; }
 
         public string Location { get; }
 
@@ -128,10 +137,10 @@ namespace ExcelDataReader.Core.BinaryFormat
         /// <summary>
         /// 2.3.7.2 HyperlinkMoniker
         /// </summary>
-        private string ReadHyperLinkMoniker(int offset, out int bytesRead)
+        private OleMoniker ReadHyperLinkMoniker(int offset, out int bytesRead)
         {
             var monikerClsid = new Guid(ReadArray(offset, 16));
-            if (monikerClsid == UrlMoniker)
+            if (monikerClsid == UrlMoniker.Clsid)
             {
                 var urlOffset = offset + 16;
 
@@ -151,9 +160,12 @@ namespace ExcelDataReader.Core.BinaryFormat
                 bytesRead = 16 + 4 + characterCount * 2;
 
                 // NOTE: Skipping serialGUID, serialVersion, uriFlags present if there is exactly 24 bytes remaining
-                return Encoding.Unicode.GetString(ReadArray(urlOffset, characterCount * 2));
+                return new UrlMoniker()
+                {
+                    Url = Encoding.Unicode.GetString(ReadArray(urlOffset, characterCount * 2))
+                };
             }
-            else if (monikerClsid == FileMoniker)
+            else if (monikerClsid == FileMoniker.Clsid)
             {
                 var fileOffset = offset + 16;
 
@@ -191,15 +203,29 @@ namespace ExcelDataReader.Core.BinaryFormat
                     fileOffset += unicodePathBytes;
 
                     bytesRead = fileOffset - offset;
-                    return unicodePath;
+
+                    return new FileMoniker()
+                    {
+                        Url = unicodePath
+                    };
                 }
                 else
                 {
                     // ansiPath is viable! No more data
                     bytesRead = fileOffset - offset;
-                    
-                    // NOTE/TODO: what encoding is "ANSI"? assume lower 8 bits of unicode aka iso8859-1??
-                    throw new InvalidOperationException("ANSI URL");
+
+                    // NOTE/TODO: What encoding is "ANSI"? POI uses UTF8, but appears scrambled to Excel. 
+                    // Assuming lower 8 bit of Unicode:
+                    var unicodeBytes = new byte[ansiLength * 2];
+                    for (var i = 0; i < ansiLength; i++)
+                    {
+                        unicodeBytes[i * 2] = ansiPath[i];
+                    }
+
+                    return new FileMoniker()
+                    {
+                        Url = Encoding.Unicode.GetString(unicodeBytes).TrimEnd('\0')
+                    };
                 }
             }
             else if (monikerClsid == CompositeMoniker)
@@ -239,12 +265,36 @@ namespace ExcelDataReader.Core.BinaryFormat
 
                 bytesRead = itemOffset - offset;
                 return null;
-                throw new InvalidOperationException("ItemMoniker");
             }
             else
             {
-                throw new InvalidOperationException("Unexpected hyperlink moniker CLSID " + monikerClsid.ToString());
+                throw new MonikerException("Unexpected hyperlink moniker CLSID " + monikerClsid.ToString());
             }
+        }
+
+        internal class MonikerException : Exception
+        {
+            public MonikerException(string message) : base(message)
+            {
+            }
+        }
+
+        internal abstract class OleMoniker
+        {
+        }
+
+        internal class UrlMoniker : OleMoniker
+        {
+            public static readonly Guid Clsid = new Guid(0x79EAC9E0, 0xBAF9, 0x11CE, 0x8C, 0x82, 0x00, 0xAA, 0x00, 0x4B, 0xA9, 0x0B);
+
+            public string Url { get; set; }
+        }
+
+        internal class FileMoniker : OleMoniker
+        {
+            public static readonly Guid Clsid = new Guid(0x00000303, 0x0000, 0x0000, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
+
+            public string Url { get; set; }
         }
     }
 }
